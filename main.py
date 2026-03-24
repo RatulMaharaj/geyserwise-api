@@ -5,10 +5,12 @@ FastAPI server for local control of Geyserwise solar geyser controller via tinyt
 Designed to integrate with Homebridge HTTP plugins for HomeKit control.
 """
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
+import httpx
 import tinytuya
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -22,6 +24,8 @@ class Settings(BaseSettings):
     ip_address: str = Field(alias="GEYSERWISE_IP")
     version: float = Field(default=3.4, alias="GEYSERWISE_VERSION")
     port: int = Field(default=8099, alias="GEYSERWISE_API_PORT")
+    webhook_url: str = Field(default="http://localhost:51830", alias="HOMEBRIDGE_WEBHOOK_URL")
+    sync_interval: int = Field(default=30, alias="SYNC_INTERVAL_SECONDS")
 
     model_config = {
         "env_file": ".env",
@@ -50,12 +54,48 @@ BLOCK_DPS = {1: DP_BLOCK1, 2: DP_BLOCK2, 3: DP_BLOCK3, 4: DP_BLOCK4}
 # Global device instance
 device: Optional[tinytuya.Device] = None
 settings: Optional[Settings] = None
+sync_task: Optional[asyncio.Task] = None
+
+
+async def sync_to_homebridge():
+    """Periodically sync device state to Homebridge webhooks."""
+    while True:
+        try:
+            dps = get_status()
+            async with httpx.AsyncClient() as client:
+                # Sync block temperatures (as both current and target)
+                for block_num in range(1, 5):
+                    block_temp = dps.get(BLOCK_DPS[block_num], 0)
+                    tank_temp = dps.get(DP_TANK_TEMP, 0)
+                    # Update current temp (show tank temp) and target temp (block setpoint)
+                    await client.get(
+                        f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&currenttemperature={tank_temp}"
+                    )
+                    await client.get(
+                        f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&targettemperature={block_temp}"
+                    )
+                    # Set heating state based on element status
+                    element_on = dps.get(DP_ELEMENT) == "On"
+                    current_state = 1 if element_on else 0  # 0=Off, 1=Heating
+                    await client.get(
+                        f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&currentstate={current_state}"
+                    )
+                
+                # Sync holiday mode
+                holiday = dps.get(DP_HOLIDAY, 0) == 1
+                await client.get(
+                    f"{settings.webhook_url}/?accessoryId=geyser-holiday&state={'true' if holiday else 'false'}"
+                )
+        except Exception as e:
+            print(f"Sync error: {e}")
+        
+        await asyncio.sleep(settings.sync_interval)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize device connection on startup."""
-    global device, settings
+    global device, settings, sync_task
     settings = Settings()
     device = tinytuya.Device(
         dev_id=settings.device_id,
@@ -64,8 +104,15 @@ async def lifespan(app: FastAPI):
         version=settings.version,
     )
     device.set_socketPersistent(True)
+    
+    # Start sync task
+    sync_task = asyncio.create_task(sync_to_homebridge())
+    
     yield
+    
     # Cleanup
+    if sync_task:
+        sync_task.cancel()
     if device:
         device.close()
 
