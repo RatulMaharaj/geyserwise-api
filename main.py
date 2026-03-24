@@ -23,25 +23,27 @@ class Settings(BaseSettings):
     version: float = Field(default=3.4, alias="GEYSERWISE_VERSION")
     port: int = Field(default=8099, alias="GEYSERWISE_API_PORT")
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = {
+        "env_file": ".env",
+        "extra": "ignore",
+        "populate_by_name": True,
+    }
 
 
-# DP Mappings for Geyserwise Delta T
-DP_POWER = 1           # Power on/off (bool)
-DP_MODE = 2            # Mode: "Timer", etc.
-DP_TANK_TEMP = 10      # Current tank temperature
-DP_ELEMENT = 13        # Element status: "On"/"Off"
-DP_PUMP = 101          # Solar pump status: "On"/"Off"
-DP_DIFFERENTIAL = 102  # Solar differential (°C)
-DP_BLOCK1 = 103        # Block 1 temperature setpoint
-DP_BLOCK2 = 104        # Block 2 temperature setpoint
-DP_BLOCK3 = 105        # Block 3 temperature setpoint
-DP_BLOCK4 = 106        # Block 4 temperature setpoint
-DP_ANTIFREEZE = 107    # Anti-freeze temperature
-DP_COLLECTOR = 108     # Solar collector temperature
-DP_HOLIDAY = 109       # Holiday mode (0=off, 1=on)
+# DP Mappings for Geyserwise Delta T (keys are strings)
+DP_POWER = "1"           # Power on/off (bool)
+DP_MODE = "2"            # Mode: "Timer", etc.
+DP_TANK_TEMP = "10"      # Current tank temperature
+DP_ELEMENT = "13"        # Element status: "On"/"Off"
+DP_PUMP = "101"          # Solar pump status: "On"/"Off"
+DP_DIFFERENTIAL = "102"  # Solar differential (°C)
+DP_BLOCK1 = "103"        # Block 1 temperature setpoint
+DP_BLOCK2 = "104"        # Block 2 temperature setpoint
+DP_BLOCK3 = "105"        # Block 3 temperature setpoint
+DP_BLOCK4 = "106"        # Block 4 temperature setpoint
+DP_ANTIFREEZE = "107"    # Anti-freeze temperature
+DP_COLLECTOR = "108"     # Solar collector temperature
+DP_HOLIDAY = "109"       # Holiday mode (0=off, 1=on)
 
 BLOCK_DPS = {1: DP_BLOCK1, 2: DP_BLOCK2, 3: DP_BLOCK3, 4: DP_BLOCK4}
 
@@ -114,9 +116,9 @@ def get_status() -> dict:
     return result.get("dps", {})
 
 
-def set_dp(dp: int, value) -> dict:
+def set_dp(dp: str, value) -> dict:
     """Set a DP value and return new status."""
-    result = device.set_value(dp, value)
+    result = device.set_value(int(dp), value)
     if result and "Error" in result:
         raise HTTPException(status_code=503, detail=f"Device error: {result['Error']}")
     return get_status()
@@ -216,10 +218,10 @@ async def set_all_blocks(temperature: int):
     if not 30 <= temperature <= 75:
         raise HTTPException(status_code=400, detail="Temperature must be 30-75°C")
     device.set_multiple_values({
-        DP_BLOCK1: temperature,
-        DP_BLOCK2: temperature,
-        DP_BLOCK3: temperature,
-        DP_BLOCK4: temperature,
+        int(DP_BLOCK1): temperature,
+        int(DP_BLOCK2): temperature,
+        int(DP_BLOCK3): temperature,
+        int(DP_BLOCK4): temperature,
     })
     return {"block1": temperature, "block2": temperature, "block3": temperature, "block4": temperature}
 
