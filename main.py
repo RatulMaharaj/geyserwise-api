@@ -63,6 +63,14 @@ async def sync_to_homebridge():
     while True:
         try:
             dps = get_status()
+            
+            # Skip sync if we got empty/invalid data (connection issue)
+            block_temps = [dps.get(BLOCK_DPS[i], 0) for i in range(1, 5)]
+            if all(t == 0 for t in block_temps):
+                print("Sync skipped: got empty data from device")
+                await asyncio.sleep(settings.sync_interval)
+                continue
+            
             element_on = dps.get(DP_ELEMENT) == "On"
             current_state = 1 if element_on else 0
             
@@ -78,7 +86,7 @@ async def sync_to_homebridge():
                 await client.get(
                     f"{settings.webhook_url}/?accessoryId=geyser-holiday&state={'true' if holiday else 'false'}"
                 )
-            print(f"Sync OK: blocks={[dps.get(BLOCK_DPS[i], 0) for i in range(1,5)]}")
+            print(f"Sync OK: blocks={block_temps}")
         except Exception as e:
             print(f"Sync error: {e}")
         
