@@ -63,14 +63,14 @@ async def sync_to_homebridge():
     while True:
         try:
             dps = get_status()
-            tank_temp = dps.get(DP_TANK_TEMP, 0)
             element_on = dps.get(DP_ELEMENT) == "On"
             current_state = 1 if element_on else 0
             
             async with httpx.AsyncClient(timeout=10.0) as client:
                 for block_num in range(1, 5):
                     block_temp = dps.get(BLOCK_DPS[block_num], 0)
-                    url = f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&currenttemperature={tank_temp}&targettemperature={block_temp}&currentstate={current_state}&targetstate=1"
+                    # Send block setpoint as both current and target so it displays correctly
+                    url = f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&currenttemperature={block_temp}&targettemperature={block_temp}&currentstate={current_state}&targetstate=1"
                     await client.get(url)
                 
                 # Sync holiday mode
@@ -78,7 +78,7 @@ async def sync_to_homebridge():
                 await client.get(
                     f"{settings.webhook_url}/?accessoryId=geyser-holiday&state={'true' if holiday else 'false'}"
                 )
-            print(f"Sync OK: tank={tank_temp}, blocks={[dps.get(BLOCK_DPS[i], 0) for i in range(1,5)]}")
+            print(f"Sync OK: blocks={[dps.get(BLOCK_DPS[i], 0) for i in range(1,5)]}")
         except Exception as e:
             print(f"Sync error: {e}")
         
