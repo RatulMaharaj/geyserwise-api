@@ -59,33 +59,26 @@ sync_task: Optional[asyncio.Task] = None
 
 async def sync_to_homebridge():
     """Periodically sync device state to Homebridge webhooks."""
+    print(f"Sync task started, interval: {settings.sync_interval}s")
     while True:
         try:
             dps = get_status()
-            async with httpx.AsyncClient() as client:
-                # Sync block temperatures (as both current and target)
+            tank_temp = dps.get(DP_TANK_TEMP, 0)
+            element_on = dps.get(DP_ELEMENT) == "On"
+            current_state = 1 if element_on else 0
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 for block_num in range(1, 5):
                     block_temp = dps.get(BLOCK_DPS[block_num], 0)
-                    tank_temp = dps.get(DP_TANK_TEMP, 0)
-                    # Update current temp (show tank temp) and target temp (block setpoint)
-                    await client.get(
-                        f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&currenttemperature={tank_temp}"
-                    )
-                    await client.get(
-                        f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&targettemperature={block_temp}"
-                    )
-                    # Set heating state based on element status
-                    element_on = dps.get(DP_ELEMENT) == "On"
-                    current_state = 1 if element_on else 0  # 0=Off, 1=Heating
-                    await client.get(
-                        f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&currentstate={current_state}"
-                    )
+                    url = f"{settings.webhook_url}/?accessoryId=geyser-block-{block_num}&currenttemperature={tank_temp}&targettemperature={block_temp}&currentstate={current_state}&targetstate=1"
+                    await client.get(url)
                 
                 # Sync holiday mode
                 holiday = dps.get(DP_HOLIDAY, 0) == 1
                 await client.get(
                     f"{settings.webhook_url}/?accessoryId=geyser-holiday&state={'true' if holiday else 'false'}"
                 )
+            print(f"Sync OK: tank={tank_temp}, blocks={[dps.get(BLOCK_DPS[i], 0) for i in range(1,5)]}")
         except Exception as e:
             print(f"Sync error: {e}")
         
